@@ -575,8 +575,7 @@ class Trainer:
             # Clean the state at the end of training
             delattr(self, "_past")
 
-        
-        output_dir = os.path.join(self.args.output_dir, "-final")
+        output_dir = os.path.join(self.args.output_dir, "final")
         wandb.save(output_dir)
         
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
