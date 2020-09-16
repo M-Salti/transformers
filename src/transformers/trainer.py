@@ -575,7 +575,10 @@ class Trainer:
             # Clean the state at the end of training
             delattr(self, "_past")
 
+        # finished training
+        self.evaluate()
         output_dir = os.path.join(self.args.output_dir, "final")
+        self.save_model(output_dir)
         wandb.save(output_dir)
         
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
