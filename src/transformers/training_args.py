@@ -111,10 +111,6 @@ class TrainingArguments:
             at the next training step under the keyword argument ``mems``.
     """
 
-    run_name: Optional[str] = field(
-        default=None, metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."}
-    )
-
     output_dir: str = field(
         metadata={"help": "The output directory where the model predictions and checkpoints will be written."}
     )
@@ -181,6 +177,9 @@ class TrainingArguments:
     warmup_steps: int = field(default=0, metadata={"help": "Linear warmup over warmup_steps."})
 
     logging_dir: Optional[str] = field(default_factory=default_logdir, metadata={"help": "Tensorboard log dir."})
+    run_name: Optional[str] = field(
+        default=None, metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."}
+    )
     logging_first_step: bool = field(default=False, metadata={"help": "Log and eval the first global_step"})
     logging_steps: int = field(default=500, metadata={"help": "Log every X updates steps."})
     save_steps: int = field(default=500, metadata={"help": "Save checkpoint every X updates steps."})
