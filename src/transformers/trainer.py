@@ -578,8 +578,9 @@ class Trainer:
         # finished training
         self.evaluate()
         output_dir = os.path.join(self.args.output_dir, "final")
+        print(list(Path(output_dir).iterdir()))
         self.save_model(output_dir)
-        wandb.save(output_dir)
+        wandb.save(f"{output_dir}/*")
         self.run.finish()
         
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
