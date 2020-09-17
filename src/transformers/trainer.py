@@ -359,7 +359,7 @@ class Trainer:
             logger.info(
                 'Automatic Weights & Biases logging enabled, to disable set os.environ["WANDB_DISABLED"] = "true"'
             )
-            wandb.init(project=os.getenv("WANDB_PROJECT", "huggingface"), config=vars(self.args))
+            self.run = wandb.init(project=os.getenv("WANDB_PROJECT", "huggingface"), config=vars(self.args), name=self.args.run_name)
             # keep track of model topology and gradients, unsupported on TPU
             if not is_torch_tpu_available() and os.getenv("WANDB_WATCH") != "false":
                 wandb.watch(
@@ -580,6 +580,7 @@ class Trainer:
         output_dir = os.path.join(self.args.output_dir, "final")
         self.save_model(output_dir)
         wandb.save(output_dir)
+        self.run.finish()
         
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         return TrainOutput(self.global_step, tr_loss / self.global_step)

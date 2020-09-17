@@ -111,6 +111,10 @@ class TrainingArguments:
             at the next training step under the keyword argument ``mems``.
     """
 
+    run_name: Optional[str] = field(
+        default=None, metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."}
+    )
+
     output_dir: str = field(
         metadata={"help": "The output directory where the model predictions and checkpoints will be written."}
     )
