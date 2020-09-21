@@ -577,9 +577,15 @@ class Trainer:
 
         # finished training
         self.evaluate()
+
         output_dir = os.path.join(self.args.output_dir, "final")
+
         self.save_model(output_dir)
+        torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+        torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+
         print(list(Path(output_dir).iterdir()))
+        
         wandb.save(f"{output_dir}/*")
         # self.run.finish()
         
