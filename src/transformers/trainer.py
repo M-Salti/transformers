@@ -590,7 +590,7 @@ class Trainer:
         # self.run.finish()
         
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
-        return TrainOutput(self.global_step, tr_loss / self.global_step)
+        return TrainOutput(self.global_step, tr_loss / self.global_step), self.run
 
     def _log(self, logs: Dict[str, float], iterator: Optional[tqdm] = None) -> None:
         if self.epoch is not None:
