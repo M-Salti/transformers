@@ -581,7 +581,7 @@ class Trainer:
         self.save_model(output_dir)
         print(list(Path(output_dir).iterdir()))
         wandb.save(f"{output_dir}/*")
-        self.run.finish()
+        # self.run.finish()
         
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
         return TrainOutput(self.global_step, tr_loss / self.global_step)
