@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Optional
 
-from datasets import load_dataset, load_metric
+from datasets import load_dataset, load_metric, load_from_disk
 
 import transformers
 from trainer_qa import QuestionAnsweringTrainer
@@ -84,6 +84,9 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
+    dataset_folder: Optional[str] = field(
+        default=None, metadata={"help": "Path to a folder containing a (possibley preprocessed) HuggingFace dataset."}
+    )
     dataset_name: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )
@@ -145,7 +148,7 @@ class DataTrainingArguments:
     )
 
     def __post_init__(self):
-        if self.dataset_name is None and self.train_file is None and self.validation_file is None:
+        if self.dataset_folder is None and self.dataset_name is None and self.train_file is None and self.validation_file is None:
             raise ValueError("Need either a dataset name or a training/validation file.")
         else:
             if self.train_file is not None:
@@ -214,7 +217,10 @@ def main():
     #
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    if data_args.dataset_name is not None:
+    if data_args.dataset_folder is not None:
+        # Load the dataset from the specified folder in the disk
+        datasets = load_from_disk(data_args.dataset_folder, data_args.dataset_config_name)
+    elif data_args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
         datasets = load_dataset(data_args.dataset_name, data_args.dataset_config_name)
     else:
