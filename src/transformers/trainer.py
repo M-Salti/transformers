@@ -264,11 +264,14 @@ class Trainer:
         self.eval_dataset = eval_dataset
         self.tokenizer = tokenizer
 
-        # Model parallel
-        if not self.is_model_parallel:
+        # postpone switching model to cuda when:
+        # 1. MP - since we are trying to fit a much bigger than 1 gpu model
+        # 2. fp16-enabled DeepSpeed loads the model in half the size and it doesn't need .to() anyway
+        if not (self.is_model_parallel or args.deepspeed):
             model = model.to(args.device)
-        else:
-            # Force n_gpu to 1 to avoid DataParallel.
+
+        # Force n_gpu to 1 to avoid DataParallel as MP will manage the GPUs
+        if self.is_model_parallel:
             self.args._n_gpu = 1
 
         # later use `self.model is self.model_wrapped` to check if it's wrapped or not
@@ -485,7 +488,7 @@ class Trainer:
             collate_fn=self.data_collator,
             drop_last=self.args.dataloader_drop_last,
             num_workers=self.args.dataloader_num_workers,
-            pin_memory=self.args.pin_memory,
+            pin_memory=self.args.dataloader_pin_memory,
         )
 
     def _get_eval_sampler(self, eval_dataset: Dataset) -> Optional[torch.utils.data.sampler.Sampler]:
@@ -523,7 +526,7 @@ class Trainer:
             collate_fn=self.data_collator,
             drop_last=self.args.dataloader_drop_last,
             num_workers=self.args.dataloader_num_workers,
-            pin_memory=self.args.pin_memory,
+            pin_memory=self.args.dataloader_pin_memory,
         )
 
     def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
@@ -550,7 +553,7 @@ class Trainer:
             batch_size=self.args.eval_batch_size,
             collate_fn=self.data_collator,
             drop_last=self.args.dataloader_drop_last,
-            pin_memory=self.args.pin_memory,
+            pin_memory=self.args.dataloader_pin_memory,
         )
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
@@ -790,6 +793,8 @@ class Trainer:
             model = ShardedDDP(model, self.optimizer)
         elif is_sagemaker_distributed_available():
             model = DDP(model, device_ids=[dist.get_local_rank()], broadcast_buffers=False)
+        elif self.deepspeed:
+            pass  # already initialized its own DDP earlier
         elif self.args.local_rank != -1:
             if self.args.ddp_find_unused_parameters is not None:
                 find_unused_parameters = self.args.ddp_find_unused_parameters
@@ -910,7 +915,11 @@ class Trainer:
             if self.args.past_index >= 0:
                 self._past = None
 
-            steps_in_epoch = len(epoch_iterator) if train_dataset_is_sized else self.args.max_steps
+            steps_in_epoch = (
+                len(epoch_iterator)
+                if train_dataset_is_sized
+                else self.args.max_steps * self.args.gradient_accumulation_steps
+            )
             self.control = self.callback_handler.on_epoch_begin(self.args, self.state, self.control)
 
             for step, inputs in enumerate(epoch_iterator):
@@ -1312,7 +1321,7 @@ class Trainer:
 
         return loss.detach()
 
-    def compute_loss(self, model, inputs):
+    def compute_loss(self, model, inputs, return_outputs=False):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
 
@@ -1329,10 +1338,12 @@ class Trainer:
             self._past = outputs[self.args.past_index]
 
         if labels is not None:
-            return self.label_smoother(outputs, labels)
+            loss = self.label_smoother(outputs, labels)
         else:
             # We don't use .loss here since the model may return tuples instead of ModelOutput.
-            return outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+            loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+        return (loss, outputs) if return_outputs else loss
 
     def is_local_process_zero(self) -> bool:
         """
@@ -1365,6 +1376,11 @@ class Trainer:
             self._save_tpu(output_dir)
         elif self.is_world_process_zero():
             self._save(output_dir)
+
+        # If on sagemaker and we are saving the main model (not a checkpoint so output_dir=None), save a copy to
+        # SM_MODEL_DIR for easy deployment.
+        if output_dir is None and os.getenv("SM_MODEL_DIR") is not None:
+            self.save_model(output_dir=os.getenv("SM_MODEL_DIR"))
 
     def _save_tpu(self, output_dir: Optional[str] = None):
         output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -1713,29 +1729,27 @@ class Trainer:
                 ignore_keys = []
 
         with torch.no_grad():
-            if self.use_amp:
-                with autocast():
-                    outputs = model(**inputs)
-            else:
-                outputs = model(**inputs)
             if has_labels:
-                if self.label_smoother is not None and "labels" in inputs:
-                    loss = self.label_smoother(outputs, inputs["labels"]).mean().detach()
-                else:
-                    loss = (outputs["loss"] if isinstance(outputs, dict) else outputs[0]).mean().detach()
+                loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
+                loss = loss.mean().detach()
                 if isinstance(outputs, dict):
                     logits = tuple(v for k, v in outputs.items() if k not in ignore_keys + ["loss"])
                 else:
                     logits = outputs[1:]
             else:
                 loss = None
+                if self.use_amp:
+                    with autocast():
+                        outputs = model(**inputs)
+                else:
+                    outputs = model(**inputs)
                 if isinstance(outputs, dict):
                     logits = tuple(v for k, v in outputs.items() if k not in ignore_keys)
                 else:
                     logits = outputs
-            # TODO: this needs to be fixed and made cleaner later.
-            if self.args.past_index >= 0:
-                self._past = outputs[self.args.past_index if has_labels else self.args.past_index - 1]
+                # TODO: this needs to be fixed and made cleaner later.
+                if self.args.past_index >= 0:
+                    self._past = outputs[self.args.past_index - 1]
 
         if prediction_loss_only:
             return (loss, None, None)
