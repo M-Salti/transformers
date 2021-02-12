@@ -598,10 +598,14 @@ class Trainer:
                 self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
 
         if self.lr_scheduler is None:
+            num_warmup_steps = math.ceil(self.args.warmup_ratio * num_training_steps)
+            if self.args.warmup_steps:
+                num_warmup_steps = self.args.warmup_steps
+
             self.lr_scheduler = get_scheduler(
                 self.args.lr_scheduler_type,
                 self.optimizer,
-                num_warmup_steps=self.args.warmup_steps,
+                num_warmup_steps=num_warmup_steps,
                 num_training_steps=num_training_steps,
             )
 
