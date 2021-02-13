@@ -567,7 +567,7 @@ class WandbCallback(TrainerCallback):
                 config=combined_dict,
                 name=run_name,
                 reinit=reinit,
-                save_code=True
+                save_code=True,
                 **init_args,
             )
 
