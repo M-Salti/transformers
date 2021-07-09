@@ -1343,6 +1343,14 @@ if is_tf_available():
             "TFGPT2PreTrainedModel",
         ]
     )
+    _import_structure["models.hubert"].extend(
+        [
+            "TF_HUBERT_PRETRAINED_MODEL_ARCHIVE_LIST",
+            "TFHubertForCTC",
+            "TFHubertModel",
+            "TFHubertPreTrainedModel",
+        ]
+    )
     _import_structure["models.layoutlm"].extend(
         [
             "TF_LAYOUTLM_PRETRAINED_MODEL_ARCHIVE_LIST",
@@ -1632,6 +1640,13 @@ if is_flax_available():
     _import_structure["models.gpt2"].extend(["FlaxGPT2LMHeadModel", "FlaxGPT2Model", "FlaxGPT2PreTrainedModel"])
     _import_structure["models.gpt_neo"].extend(
         ["FlaxGPTNeoForCausalLM", "FlaxGPTNeoModel", "FlaxGPTNeoPreTrainedModel"]
+    )
+    _import_structure["models.marian"].extend(
+        [
+            "FlaxMarianModel",
+            "FlaxMarianMTModel",
+            "FlaxMarianPreTrainedModel",
+        ]
     )
     _import_structure["models.mbart"].extend(
         [
@@ -2797,6 +2812,12 @@ if TYPE_CHECKING:
             TFGPT2Model,
             TFGPT2PreTrainedModel,
         )
+        from .models.hubert import (
+            TF_HUBERT_PRETRAINED_MODEL_ARCHIVE_LIST,
+            TFHubertForCTC,
+            TFHubertModel,
+            TFHubertPreTrainedModel,
+        )
         from .models.led import TFLEDForConditionalGeneration, TFLEDModel, TFLEDPreTrainedModel
         from .models.longformer import (
             TF_LONGFORMER_PRETRAINED_MODEL_ARCHIVE_LIST,
@@ -3028,6 +3049,7 @@ if TYPE_CHECKING:
         )
         from .models.gpt2 import FlaxGPT2LMHeadModel, FlaxGPT2Model, FlaxGPT2PreTrainedModel
         from .models.gpt_neo import FlaxGPTNeoForCausalLM, FlaxGPTNeoModel, FlaxGPTNeoPreTrainedModel
+        from .models.marian import FlaxMarianModel, FlaxMarianMTModel, FlaxMarianPreTrainedModel
         from .models.mbart import (
             FlaxMBartForConditionalGeneration,
             FlaxMBartForQuestionAnswering,
