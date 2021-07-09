@@ -36,10 +36,38 @@ class SentencePieceUnigramTokenizer(BaseTokenizer):
 
         tokenizer = Tokenizer(Unigram())
 
+        # the following regexes are taken directly from https://github.com/aub-mind/arabert/blob/f92f06a29804f74878e2d1e39ea57fba8dcb0eac/preprocess.py
+        url = " [رابط] "
+        email = " [بريد] "
+        usr = " [مستخدم] "
+
+        url_regexes = [
+            r"(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
+            r"@(https?|ftp)://(-\.)?([^\s/?\.#-]+\.?)+(/[^\s]*)?$@iS",
+            r"http[s]?://[a-zA-Z0-9_\-./~\?=%&]+",
+            r"www[a-zA-Z0-9_\-?=%&/.~]+",
+            r"[a-zA-Z]+\.com",
+            r"(?=http)[^\s]+",
+            r"(?=www)[^\s]+",
+            r"://",
+        ]
+
+        email_regexes = [r"[\w-]+@([\w-]+\.)+[\w-]+", r"\S+@\S+"]
+
+        user_mention_regex = r"@[\w\d]+"
+
         tokenizer.normalizer = normalizers.Sequence(
             [
                 normalizers.Nmt(),
                 normalizers.NFKC(),
+                # remove links, emails, user mentions ans hashtags
+                *[normalizers.Replace(Regex(r), url) for r in url_regexes],
+                *[normalizers.Replace(Regex(r), email) for r in email_regexes],
+                normalizers.Replace(Regex(user_mention_regex), usr),
+                # remove html
+                normalizers.Replace(Regex("<br />"), " "),
+                normalizers.Replace(Regex("</?[^>]+>"), " "),
+                # remove extra white space
                 normalizers.Replace(Regex(" {2,}"), " "),
                 normalizers.Lowercase(),
             ]
