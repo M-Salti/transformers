@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
-from datasets import load_dataset
+from datasets import load_dataset, concatenate_datasets
 from tqdm import tqdm
 
 import flax
@@ -103,33 +103,8 @@ class DataTrainingArguments:
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
 
-    dataset_name: Optional[str] = field(
-        default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
-    )
-    dataset_config_name: Optional[str] = field(
-        default=None, metadata={"help": "The configuration name of the dataset to use (via the datasets library)."}
-    )
-    train_file: Optional[str] = field(default=None, metadata={"help": "The input training data file (a text file)."})
-    validation_file: Optional[str] = field(
-        default=None,
-        metadata={"help": "An optional input evaluation data file to evaluate the perplexity on (a text file)."},
-    )
-    train_ref_file: Optional[str] = field(
-        default=None,
-        metadata={"help": "An optional input train ref data file for whole word masking in Chinese."},
-    )
-    validation_ref_file: Optional[str] = field(
-        default=None,
-        metadata={"help": "An optional input validation ref data file for whole word masking in Chinese."},
-    )
     overwrite_cache: bool = field(
         default=False, metadata={"help": "Overwrite the cached training and evaluation sets"}
-    )
-    validation_split_percentage: Optional[int] = field(
-        default=5,
-        metadata={
-            "help": "The percentage of the train set used as validation set in case there's no validation split"
-        },
     )
     max_seq_length: Optional[int] = field(
         default=None,
@@ -148,17 +123,6 @@ class DataTrainingArguments:
         default=3.0,
         metadata={"help": "Mean span length of masked tokens"},
     )
-
-    def __post_init__(self):
-        if self.dataset_name is None and self.train_file is None and self.validation_file is None:
-            raise ValueError("Need either a dataset name or a training/validation file.")
-        else:
-            if self.train_file is not None:
-                extension = self.train_file.split(".")[-1]
-                assert extension in ["csv", "json", "txt"], "`train_file` should be a csv, a json or a txt file."
-            if self.validation_file is not None:
-                extension = self.validation_file.split(".")[-1]
-                assert extension in ["csv", "json", "txt"], "`validation_file` should be a csv, a json or a txt file."
 
 
 def compute_input_and_target_lengths(inputs_length, noise_density, mean_noise_span_length):
@@ -437,42 +401,28 @@ if __name__ == "__main__":
     # Set seed before initializing model.
     set_seed(training_args.seed)
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    if data_args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        datasets = load_dataset(data_args.dataset_name, data_args.dataset_config_name, cache_dir=model_args.cache_dir)
+    logger.info(
+        "\n==================================================Loading datasets==================================================\n"
+    )
 
-        if "validation" not in datasets.keys():
-            datasets["validation"] = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                split=f"train[:{data_args.validation_split_percentage}%]",
-                cache_dir=model_args.cache_dir,
-            )
-            datasets["train"] = load_dataset(
-                data_args.dataset_name,
-                data_args.dataset_config_name,
-                split=f"train[{data_args.validation_split_percentage}%:]",
-                cache_dir=model_args.cache_dir,
-            )
-    else:
-        data_files = {}
-        if data_args.train_file is not None:
-            data_files["train"] = data_args.train_file
-        if data_args.validation_file is not None:
-            data_files["validation"] = data_args.validation_file
-        extension = data_args.train_file.split(".")[-1]
-        if extension == "txt":
-            extension = "text"
-        datasets = load_dataset(extension, data_files=data_files, cache_dir=model_args.cache_dir)
+    oscar = load_dataset("oscar", "unshuffled_deduplicated_ar")["train"]
+    oscar = oscar.remove_columns(["id"])
 
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
+    mc4 = load_dataset("mc4", "ar")
+    mc4 = mc4.remove_columns(["timestamp", "url"])
+
+    configs = ["Alittihad", "Almasryalyoum", "Alqabas", "Echoroukonline", "Ryiadh", "Sabanews", "SaudiYoum", "Youm7"]
+    abwc = concatenate_datasets([load_dataset("arabic_billion_words", c)["train"] for c in configs])
+    abwc = abwc.remove_columns(["url", "head_line", "date"])
+
+    datasets = concatenate_datasets([oscar, mc4["train"], mc4["validation"], abwc])
+    datasets = datasets.train_test_split(test_size=0.1 / 100, shuffle=True, seed=12)
+    datasets["validation"] = datasets["test"]
+    del datasets["test"]
+
+    logger.info(
+        "\n==================================================Done loading==================================================\n"
+    )
 
     # Load pretrained model and tokenizer
 
@@ -517,12 +467,20 @@ if __name__ == "__main__":
     def tokenize_function(examples):
         return tokenizer(examples[text_column_name], return_attention_mask=False)
 
+    logger.info(
+        "\n==================================================Tokenizing the dataset==================================================\n"
+    )
+
     tokenized_datasets = datasets.map(
         tokenize_function,
         batched=True,
         num_proc=data_args.preprocessing_num_workers,
         remove_columns=column_names,
-        load_from_cache_file=not data_args.overwrite_cache,
+        keep_in_memory=True,
+    )
+
+    logger.info(
+        "\n==================================================Tokenizing done==================================================\n"
     )
 
     # T5-like span masked language modeling will fuse consecutively masked tokens to a single sentinel token.
@@ -556,12 +514,19 @@ if __name__ == "__main__":
     #
     # To speed up this part, we use multiprocessing. See the documentation of the map method for more information:
     # https://huggingface.co/docs/datasets/package_reference/main_classes.html#datasets.Dataset.map
+    logger.info(
+        "\n==================================================Grouping the dataset==================================================\n"
+    )
     tokenized_datasets = tokenized_datasets.map(
         group_texts,
         batched=True,
         num_proc=data_args.preprocessing_num_workers,
-        load_from_cache_file=not data_args.overwrite_cache,
+        keep_in_memory=True,
     )
+    logger.info(
+        "\n==================================================Grouping done==================================================\n"
+    )
+    tokenized_datasets.save_to_disk(model_args.cache_dir)
 
     # Enable tensorboard only on the master node
     has_tensorboard = is_tensorboard_available()
@@ -585,12 +550,24 @@ if __name__ == "__main__":
     rng = jax.random.PRNGKey(training_args.seed)
     dropout_rngs = jax.random.split(rng, jax.local_device_count())
 
+    logger.info(
+        f"JAX devices:\n{jax.devices()}\nNum devices: {jax.device_count()}\nBackend: {jax.lib.xla_bridge.get_backend().platform}"
+    )
+
+    logger.info(
+        "\n==================================================Initializing the model==================================================\n"
+    )
+
     if model_args.model_name_or_path:
         model = FlaxT5ForConditionalGeneration.from_pretrained(
             model_args.model_name_or_path, config=config, seed=training_args.seed, dtype=getattr(jnp, model_args.dtype)
         )
     else:
         model = FlaxT5ForConditionalGeneration(config, seed=training_args.seed, dtype=getattr(jnp, model_args.dtype))
+
+    logger.info(
+        "\n==================================================Done!==================================================\n"
+    )
 
     # Data collator
     # This one will take care of randomly masking the tokens.
@@ -612,17 +589,16 @@ if __name__ == "__main__":
     num_train_steps = len(tokenized_datasets["train"]) // train_batch_size * num_epochs
 
     # Create learning rate schedule
+    warmup_steps = num_train_steps * 5 // 100
     warmup_fn = optax.linear_schedule(
-        init_value=0.0, end_value=training_args.learning_rate, transition_steps=training_args.warmup_steps
+        init_value=0.0, end_value=training_args.learning_rate, transition_steps=warmup_steps
     )
     decay_fn = optax.linear_schedule(
         init_value=training_args.learning_rate,
         end_value=0,
-        transition_steps=num_train_steps - training_args.warmup_steps,
+        transition_steps=num_train_steps - warmup_steps,
     )
-    linear_decay_lr_schedule_fn = optax.join_schedules(
-        schedules=[warmup_fn, decay_fn], boundaries=[training_args.warmup_steps]
-    )
+    linear_decay_lr_schedule_fn = optax.join_schedules(schedules=[warmup_fn, decay_fn], boundaries=[warmup_steps])
 
     # We use Optax's "masking" functionality to not apply weight decay
     # to bias and LayerNorm scale parameters. decay_mask_fn returns a
@@ -782,4 +758,12 @@ if __name__ == "__main__":
                         params=params,
                         push_to_hub=training_args.push_to_hub,
                         commit_message=f"Saving weights and logs of step {cur_step}",
+                    )
+                    # save the optimizer
+                    flax.training.checkpoints.save_checkpoint(
+                        ckpt_dir=training_args.output_dir,
+                        target=jax_utils.unreplicate(state),
+                        step=cur_step,
+                        keep=training_args.save_total_limit,
+                        overwrite=True,
                     )
